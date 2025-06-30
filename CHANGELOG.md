@@ -1,3 +1,4 @@
+
 # Changelog
 
 Todos los cambios importantes de este proyecto se documentan en este archivo.
@@ -53,3 +54,4 @@ El formato sigue la convención de [Keep a Changelog](https://keepachangelog.com
 ## [1.0.0] - 2025-06-29
 ### Added
 - Versión inicial del proyecto
+
