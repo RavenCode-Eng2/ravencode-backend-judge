@@ -23,10 +23,10 @@ def get_password_hash(password: str) -> str:
     """Generar hash de la contraseña"""
     return pwd_context.hash(password)
 
-def authenticate_user(username: str, password: str) -> Optional[User]:
+async def authenticate_user(username: str, password: str) -> Optional[User]:
     """Autenticar usuario con username/email y contraseña"""
     # Buscar por username o email
-    user = get_user_by_username(username)
+    user = await get_user_by_username(username)
     if not user:
         return None
     
@@ -60,12 +60,12 @@ def verify_token(token: str) -> Optional[str]:
     except JWTError:
         return None
 
-def get_default_user() -> User:
+async def get_default_user() -> User:
     """Obtener usuario por defecto para desarrollo"""
     from app.core.database import get_user_by_username
     
     # Intentar obtener el usuario admin
-    admin_user = get_user_by_username("admin")
+    admin_user = await get_user_by_username("admin")
     if admin_user:
         return admin_user
     
@@ -83,15 +83,15 @@ def get_default_user() -> User:
 async def get_current_user_optional(token: str = Depends(oauth2_scheme)) -> User:
     """Obtener usuario actual o usuario por defecto si no hay token"""
     if token is None:
-        return get_default_user()
+        return await get_default_user()
     
     username = verify_token(token)
     if username is None:
-        return get_default_user()
+        return await get_default_user()
     
-    user = get_user_by_username(username)
+    user = await get_user_by_username(username)
     if user is None:
-        return get_default_user()
+        return await get_default_user()
     
     return user
 
@@ -110,7 +110,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     if username is None:
         raise credentials_exception
     
-    user = get_user_by_username(username)
+    user = await get_user_by_username(username)
     if user is None:
         raise credentials_exception
     

@@ -14,7 +14,14 @@ class CodeJudge:
     """Clase principal para evaluar código de estudiantes"""
     
     def __init__(self):
-        self.docker_client = docker.from_env()
+        """Inicializar el juez con la configuración de Docker"""
+        try:
+            self.docker_client = docker.from_env()
+            self.docker_client.ping()  # Verificar conexión
+        except Exception as e:
+            print(f"Error inicializando Docker: {str(e)}")
+            self.docker_client = None
+            
         self.supported_languages = {
             "python": {
                 "extension": ".py",
@@ -37,75 +44,88 @@ class CodeJudge:
         self, 
         code: str, 
         language: str, 
-        problem_id: int
+        problem_id: str
     ) -> Dict[str, Any]:
         """
         Evaluar código contra todos los casos de prueba de un problema
         """
-        # Obtener el problema y sus casos de prueba
-        problem = get_problem_by_id(problem_id)
-        test_cases = get_test_cases_by_problem_id(problem_id)
-        
-        if not problem or not test_cases:
+        try:
+            # Obtener el problema y sus casos de prueba
+            problem = await get_problem_by_id(problem_id)
+            if not problem:
+                return {
+                    "status": "error",
+                    "message": "Problema no encontrado"
+                }
+
+            test_cases = await get_test_cases_by_problem_id(problem_id)
+            if not test_cases:
+                return {
+                    "status": "error",
+                    "message": "No hay casos de prueba para este problema"
+                }
+            
+            # Verificar que el lenguaje es soportado
+            if language not in self.supported_languages:
+                return {
+                    "status": "error",
+                    "message": f"Lenguaje {language} no soportado"
+                }
+            
+            total_test_cases = len(test_cases)
+            passed_test_cases = 0
+            total_execution_time = 0
+            total_memory_used = 0
+            test_case_results = []
+            
+            # Evaluar cada caso de prueba
+            for test_case in test_cases:
+                result = await self._run_test_case(
+                    code=code,
+                    language=language,
+                    input_data=test_case.input_data,
+                    expected_output=test_case.expected_output,
+                    time_limit=problem.time_limit,
+                    memory_limit=problem.memory_limit
+                )
+                
+                test_case_results.append(result)
+                
+                if result["status"] == "passed":
+                    passed_test_cases += 1
+                
+                if result.get("execution_time"):
+                    total_execution_time += result["execution_time"]
+                
+                if result.get("memory_used"):
+                    total_memory_used = max(total_memory_used, result["memory_used"])
+            
+            # Calcular puntuación y estado final
+            score = (passed_test_cases / total_test_cases) * 100 if total_test_cases > 0 else 0
+            
+            if passed_test_cases == total_test_cases:
+                final_status = "accepted"
+            elif passed_test_cases > 0:
+                final_status = "partial"
+            else:
+                final_status = "wrong_answer"
+            
+            return {
+                "status": final_status,
+                "score": score,
+                "execution_time": total_execution_time,
+                "memory_used": total_memory_used,
+                "passed_test_cases": passed_test_cases,
+                "total_test_cases": total_test_cases,
+                "test_case_results": test_case_results
+            }
+        except Exception as e:
+            print(f"Error en evaluate: {str(e)}")
             return {
                 "status": "error",
-                "message": "Problema o casos de prueba no encontrados"
+                "message": f"Error al evaluar la submisión: {str(e)}",
+                "score": 0.0
             }
-        
-        # Verificar que el lenguaje es soportado
-        if language not in self.supported_languages:
-            return {
-                "status": "error",
-                "message": f"Lenguaje {language} no soportado"
-            }
-        
-        total_test_cases = len(test_cases)
-        passed_test_cases = 0
-        total_execution_time = 0
-        total_memory_used = 0
-        test_case_results = []
-        
-        # Evaluar cada caso de prueba
-        for test_case in test_cases:
-            result = await self._run_test_case(
-                code=code,
-                language=language,
-                input_data=test_case.input_data,
-                expected_output=test_case.expected_output,
-                time_limit=problem.time_limit,
-                memory_limit=problem.memory_limit
-            )
-            
-            test_case_results.append(result)
-            
-            if result["status"] == "passed":
-                passed_test_cases += 1
-            
-            if result.get("execution_time"):
-                total_execution_time += result["execution_time"]
-            
-            if result.get("memory_used"):
-                total_memory_used = max(total_memory_used, result["memory_used"])
-        
-        # Calcular puntuación y estado final
-        score = (passed_test_cases / total_test_cases) * 100 if total_test_cases > 0 else 0
-        
-        if passed_test_cases == total_test_cases:
-            final_status = "accepted"
-        elif passed_test_cases > 0:
-            final_status = "partial"
-        else:
-            final_status = "wrong_answer"
-        
-        return {
-            "status": final_status,
-            "score": score,
-            "execution_time": total_execution_time,
-            "memory_used": total_memory_used,
-            "passed_test_cases": passed_test_cases,
-            "total_test_cases": total_test_cases,
-            "test_case_results": test_case_results
-        }
     
     async def _run_test_case(
         self,
@@ -266,52 +286,70 @@ class CodeJudge:
         memory_limit: int
     ) -> Dict[str, Any]:
         """
-        Ejecutar código en contenedor Docker (modo producción)
+        Ejecutar código en un contenedor Docker
         """
+        if not self.docker_client:
+            return {
+                "status": "error",
+                "error_message": "Docker no está disponible"
+            }
+            
         try:
             lang_config = self.supported_languages[language]
+            container = None
             
-            # Crear contenedor
-            container = self.docker_client.containers.run(
-                lang_config["docker_image"],
-                command=f"timeout {time_limit/1000} {lang_config['command']} /code/{os.path.basename(code_file)}",
-                volumes={
-                    os.path.dirname(code_file): {'bind': '/code', 'mode': 'ro'},
-                    os.path.dirname(input_file): {'bind': '/input', 'mode': 'ro'}
-                },
-                working_dir="/code",
-                detach=True,
-                mem_limit=f"{memory_limit}m",
-                network_disabled=True,
-                read_only=True
-            )
-            
-            # Ejecutar con entrada
-            with open(input_file, 'r') as input_f:
-                input_data = input_f.read()
-                result = container.exec_run(
-                    cmd=f"sh -c 'echo \"{input_data}\" | timeout {time_limit/1000} {lang_config['command']} /code/{os.path.basename(code_file)}'",
-                    demux=True
+            try:
+                # Crear y ejecutar contenedor
+                container = self.docker_client.containers.run(
+                    image=lang_config["docker_image"],
+                    command=f"{lang_config['command']} {os.path.basename(code_file)}",
+                    volumes={
+                        os.path.dirname(code_file): {'bind': '/code', 'mode': 'ro'},
+                        os.path.dirname(input_file): {'bind': '/input', 'mode': 'ro'}
+                    },
+                    working_dir="/code",
+                    detach=True,
+                    mem_limit=f"{memory_limit}m",
+                    network_disabled=True,
+                    stdin_open=True,
+                    tty=True
                 )
-            
-            # Limpiar contenedor
-            container.remove(force=True)
-            
-            if result.exit_code == 0:
-                return {
-                    "status": "success",
-                    "output": result.output[0].decode('utf-8') if result.output[0] else "",
-                    "memory_used": 0  # Docker no proporciona métricas de memoria fácilmente
-                }
-            else:
-                error_msg = result.output[1].decode('utf-8') if result.output[1] else "Error de ejecución"
-                return {
-                    "status": "runtime_error",
-                    "error_message": error_msg
-                }
                 
+                # Esperar resultado con timeout
+                try:
+                    container.wait(timeout=time_limit)
+                    output = container.logs().decode('utf-8')
+                    return {
+                        "status": "success",
+                        "output": output,
+                        "memory_used": memory_limit  # Por ahora un valor fijo
+                    }
+                except Exception as e:
+                    return {
+                        "status": "timeout",
+                        "error_message": "Tiempo de ejecución excedido"
+                    }
+                    
+            finally:
+                # Limpiar contenedor
+                if container:
+                    try:
+                        container.remove(force=True)
+                    except:
+                        pass
+                        
+        except docker.errors.ImageNotFound:
+            return {
+                "status": "error",
+                "error_message": f"Imagen Docker no encontrada: {lang_config['docker_image']}"
+            }
+        except docker.errors.APIError as e:
+            return {
+                "status": "error",
+                "error_message": f"Error de Docker API: {str(e)}"
+            }
         except Exception as e:
             return {
                 "status": "error",
-                "error_message": str(e)
+                "error_message": f"Error ejecutando código: {str(e)}"
             } 

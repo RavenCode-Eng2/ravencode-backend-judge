@@ -11,9 +11,9 @@ from app.core.metrics import REQUEST_COUNT, RESPONSE_TIME, ERROR_COUNT
 from fastapi.responses import Response
 import time
 
-
 from app.routers import submissions, problems, auth
 from app.core.config import settings
+from app.core.mongodb import connect_to_mongo, close_mongo_connection
 
 # Cargar variables de entorno
 load_dotenv()
@@ -36,11 +36,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Eventos de inicio y cierre
+@app.on_event("startup")
+async def startup_db_client():
+    await connect_to_mongo()
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    await close_mongo_connection()
+
 # Incluir routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Autenticación"])
 app.include_router(problems.router, prefix="/api/v1/problems", tags=["Problemas"])
 app.include_router(submissions.router, prefix="/api/v1/submissions", tags=["Envíos"])
-
 
 # Middleware para registrar métricas
 @app.middleware("http")
@@ -72,7 +80,6 @@ async def record_metrics(request, call_next):
 async def metrics():
     data = generate_latest()
     return Response(content=data, media_type=CONTENT_TYPE_LATEST)
-
 
 @app.get("/")
 async def root():
