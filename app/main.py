@@ -6,6 +6,11 @@ from typing import List, Optional, Dict, Any
 import uvicorn
 import os
 from dotenv import load_dotenv
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from app.core.metrics import REQUEST_COUNT, RESPONSE_TIME, ERROR_COUNT
+from fastapi.responses import Response
+import time
+
 
 from app.routers import submissions, problems, auth
 from app.core.config import settings
@@ -35,6 +40,39 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Autenticación"])
 app.include_router(problems.router, prefix="/api/v1/problems", tags=["Problemas"])
 app.include_router(submissions.router, prefix="/api/v1/submissions", tags=["Envíos"])
+
+
+# Middleware para registrar métricas
+@app.middleware("http")
+async def record_metrics(request, call_next):
+    method = request.method
+    endpoint = request.url.path
+
+    # Registrar la hora de inicio para medir el tiempo de respuesta
+    start_time = time.time()
+
+    # Continuar con la solicitud
+    response = await call_next(request)
+
+    # Medir tiempo de respuesta
+    duration = time.time() - start_time
+    RESPONSE_TIME.labels(method=method, endpoint=endpoint).observe(duration)
+
+    # Incrementar contador de peticiones
+    REQUEST_COUNT.labels(method=method, endpoint=endpoint).inc()
+
+    # Si hay un error (código de estado >= 400), aumentar el contador de errores
+    if response.status_code >= 400:
+        ERROR_COUNT.labels(method=method, endpoint=endpoint).inc()
+
+    return response
+
+# Ruta para exponer las métricas en formato Prometheus
+@app.get("/metrics")
+async def metrics():
+    data = generate_latest()
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+
 
 @app.get("/")
 async def root():
