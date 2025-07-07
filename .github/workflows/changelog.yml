@@ -1,0 +1,52 @@
+
+name: Crear rama changelog
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  create_changelog_branch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout de main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Crear (o resetear) rama changelog
+        run: |
+          git fetch origin main
+          git checkout -B changelog
+
+      - name: Generar sección de CHANGELOG con autor, fecha, título y descripción
+        run: |
+          # Encabezado con la fecha actual
+          echo "## $(date +'%Y-%m-%d')" >> CHANGELOG.md
+
+          # Añade author, date, title y description de cada commit
+          git log ${{ github.event.before }}..${{ github.sha }} \
+            --date=format:'%Y-%m-%d %H:%M:%S' \
+            --pretty=format:"- **Author:** %an%n  **Date:** %ad%n  **Title:** %s%n  **Description:** %b%n" \
+            >> CHANGELOG.md
+
+      - name: Configurar autor del commit
+        run: |
+          git config user.name "${{ github.event.pusher.name }}"
+          git config user.email "${{ github.event.pusher.email }}"
+
+      - name: Commit de los cambios
+        run: |
+          git add CHANGELOG.md
+          git commit -m "${{ github.event.head_commit.message }}"
+
+      - name: Push de la rama changelog
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git push --force --set-upstream origin changelog
