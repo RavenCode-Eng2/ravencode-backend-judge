@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 import asyncio
 from datetime import datetime
+from bson import ObjectId
 
 from app.core.database import get_db, get_problem_by_id, get_submissions_by_user_id, get_submission_by_id
 from app.core.judge import CodeJudge
@@ -24,37 +25,50 @@ async def create_submission(
     """
     Crear una nueva submisión de código y evaluarla automáticamente
     """
+    print("Recibida nueva petición de submission")
+    
     # Verificar que el problema existe
-    problem = get_problem_by_id(submission.problem_id)
+    problem = await get_problem_by_id(submission.problem_id)
     if not problem:
+        print(f"Problema no encontrado: {submission.problem_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Problema no encontrado"
         )
     
-    # Obtener almacenamiento
-    storage = get_db()
+    print(f"Problema encontrado: {problem.title}")
+    
+    db = get_db()
     
     # Crear la submisión
-    submission_id = storage.submission_id_counter
-    storage.submission_id_counter += 1
+    submission_data = {
+        "user_id": ObjectId(current_user.id),
+        "problem_id": ObjectId(submission.problem_id),
+        "code": submission.code,
+        "language": submission.language,
+        "status": "pending",
+        "created_at": datetime.now()
+    }
     
-    db_submission = Submission(
-        id=submission_id,
-        user_id=current_user.id,
-        problem_id=submission.problem_id,
-        code=submission.code,
-        language=submission.language,
-        status="pending",
-        created_at=datetime.now()
-    )
-    
-    storage.submissions[submission_id] = db_submission
-    
-    # Ejecutar la evaluación en segundo plano
-    asyncio.create_task(evaluate_submission(submission_id))
-    
-    return db_submission
+    try:
+        result = await db.submissions.insert_one(submission_data)
+        submission_id = str(result.inserted_id)
+        print(f"Submission creada con ID: {submission_id}")
+        
+        # Ejecutar la evaluación en segundo plano
+        print("Iniciando evaluación en segundo plano...")
+        asyncio.create_task(evaluate_submission(submission_id))
+        
+        # Obtener la submisión creada
+        created_submission = await get_submission_by_id(submission_id)
+        print("Retornando submission al frontend")
+        return created_submission
+    except Exception as e:
+        print(f"Error al crear submission: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al crear submission: {str(e)}"
+        )
 
 @router.get("/", response_model=List[SubmissionList])
 async def get_submissions(
@@ -65,20 +79,20 @@ async def get_submissions(
     """
     Obtener lista de submisiones del usuario actual
     """
-    submissions = get_submissions_by_user_id(current_user.id)
+    submissions = await get_submissions_by_user_id(str(current_user.id))
     return submissions[skip:skip + limit]
 
 @router.get("/{submission_id}", response_model=SubmissionResponse)
 async def get_submission(
-    submission_id: int,
+    submission_id: str,
     current_user: User = Depends(get_current_user_optional)
 ):
     """
     Obtener detalles de una submisión específica
     """
-    submission = get_submission_by_id(submission_id)
+    submission = await get_submission_by_id(submission_id)
     
-    if not submission or submission.user_id != current_user.id:
+    if not submission or str(submission.user_id) != str(current_user.id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Submisión no encontrada"
@@ -88,17 +102,17 @@ async def get_submission(
 
 @router.put("/{submission_id}", response_model=SubmissionResponse)
 async def update_submission(
-    submission_id: int,
+    submission_id: str,
     submission_update: SubmissionUpdate,
     current_user: User = Depends(get_current_user_optional)
 ):
     """
     Actualizar una submisión (solo si está pendiente)
     """
-    storage = get_db()
-    submission = get_submission_by_id(submission_id)
+    db = get_db()
+    submission = await get_submission_by_id(submission_id)
     
-    if not submission or submission.user_id != current_user.id:
+    if not submission or str(submission.user_id) != str(current_user.id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Submisión no encontrada"
@@ -110,30 +124,47 @@ async def update_submission(
             detail="No se puede modificar una submisión que ya fue evaluada"
         )
     
-    # Actualizar campos
+    # Preparar datos de actualización
+    update_data = {}
     if submission_update.code is not None:
-        submission.code = submission_update.code
+        update_data["code"] = submission_update.code
     if submission_update.language is not None:
-        submission.language = submission_update.language
+        update_data["language"] = submission_update.language
     
-    # Actualizar en almacenamiento
-    storage.submissions[submission_id] = submission
+    # Actualizar en la base de datos
+    await db.submissions.update_one(
+        {"_id": ObjectId(submission_id)},
+        {"$set": update_data}
+    )
     
-    return submission
+    # Obtener la submisión actualizada
+    updated_submission = await get_submission_by_id(submission_id)
+    return updated_submission
 
-async def evaluate_submission(submission_id: int):
+async def evaluate_submission(submission_id: str):
     """
     Función asíncrona para evaluar una submisión
     """
     try:
-        storage = get_db()
-        submission = get_submission_by_id(submission_id)
+        submission = await get_submission_by_id(submission_id)
         if not submission:
             return
         
+        db = get_db()
+        
+        # Log para depuración
+        print("\n=== EVALUANDO SUBMISSION ===")
+        print(f"ID: {submission_id}")
+        print("Código a evaluar:")
+        print("-------------------")
+        print(submission.code)
+        print("-------------------")
+        
         # Actualizar estado a "running"
-        submission.status = "running"
-        storage.submissions[submission_id] = submission
+        await db.submissions.update_one(
+            {"_id": ObjectId(submission_id)},
+            {"$set": {"status": "running"}}
+        )
         
         # Crear instancia del juez
         judge = CodeJudge()
@@ -142,22 +173,46 @@ async def evaluate_submission(submission_id: int):
         result = await judge.evaluate(
             code=submission.code,
             language=submission.language,
-            problem_id=submission.problem_id
+            problem_id=str(submission.problem_id)
         )
         
-        # Actualizar la submisión con los resultados
-        submission.status = result["status"]
-        submission.execution_time = result.get("execution_time")
-        submission.memory_used = result.get("memory_used")
-        submission.score = result.get("score", 0.0)
+        # Log del resultado
+        print("\n=== RESULTADO DE EVALUACIÓN ===")
+        print(f"Status: {result['status']}")
+        print(f"Score: {result.get('score', 0.0)}")
+        if result.get('test_case_results'):
+            print("\nResultados por caso de prueba:")
+            for i, test_result in enumerate(result['test_case_results'], 1):
+                print(f"\nCaso {i}:")
+                print(f"Status: {test_result['status']}")
+                if test_result.get('output'):
+                    print(f"Output:\n{test_result['output']}")
+                if test_result.get('expected_output'):
+                    print(f"Expected:\n{test_result['expected_output']}")
+        print("-------------------")
         
-        storage.submissions[submission_id] = submission
+        # Actualizar la submisión con los resultados
+        update_data = {
+            "status": result["status"],
+            "execution_time": result.get("execution_time"),
+            "memory_used": result.get("memory_used"),
+            "score": result.get("score", 0.0)
+        }
+        
+        await db.submissions.update_one(
+            {"_id": ObjectId(submission_id)},
+            {"$set": update_data}
+        )
         
     except Exception as e:
-        # En caso de error, marcar como error
-        storage = get_db()
-        submission = get_submission_by_id(submission_id)
-        if submission:
-            submission.status = "error"
-            storage.submissions[submission_id] = submission
-        print(f"Error evaluando submisión {submission_id}: {str(e)}") 
+        # En caso de error, marcar como error y mostrar detalles
+        print(f"\n=== ERROR EN EVALUACIÓN ===")
+        print(f"Error evaluando submisión {submission_id}:")
+        print(str(e))
+        print("-------------------")
+        
+        db = get_db()
+        await db.submissions.update_one(
+            {"_id": ObjectId(submission_id)},
+            {"$set": {"status": "error"}}
+        ) 

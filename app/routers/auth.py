@@ -57,7 +57,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     """
     Iniciar sesión y obtener token de acceso
     """
-    user = authenticate_user(form_data.username, form_data.password)
+    user = await authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

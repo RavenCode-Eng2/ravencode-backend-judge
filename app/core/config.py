@@ -1,6 +1,10 @@
 from pydantic_settings import BaseSettings
 from typing import List
 import os
+import logging
+import platform
+
+logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
     # Configuración de la aplicación
@@ -24,18 +28,35 @@ class Settings(BaseSettings):
     # Configuración del juez de código
     JUDGE_TIMEOUT: int = 10  # segundos
     MAX_MEMORY: int = 512  # MB
-    DOCKER_IMAGE: str = "python:3.11-slim"
+    
+    # Configuración de Docker
+    DOCKER_HOST: str = "npipe:////./pipe/docker_engine" if platform.system() == "Windows" else "unix:///var/run/docker.sock"
+    DOCKER_PLATFORM: str = "windows/amd64" if platform.system() == "Windows" else "linux/amd64"
+    DOCKER_API_VERSION: str = "1.41"
+    DOCKER_TLS_VERIFY: bool = False
+    DOCKER_CERT_PATH: str = ""
     
     # Configuración de archivos
     UPLOAD_DIR: str = "./uploads"
     TEMP_DIR: str = "./temp"
     
+    # Configuración de MongoDB
+    MONGODB_URL: str = "mongodb://localhost:27017"
+    MONGODB_DATABASE: str = "ravencode_judge"
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # Ignorar campos extra en lugar de fallar
 
 # Instancia global de configuración
-settings = Settings()
+try:
+    settings = Settings()
+    logger.info("Configuración cargada exitosamente")
+except Exception as e:
+    logger.error(f"Error cargando configuración: {e}")
+    # Usar configuración por defecto si hay error
+    settings = Settings()
 
 # Crear directorios necesarios
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

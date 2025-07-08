@@ -1,6 +1,27 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
+from bson import ObjectId
+
+def serialize_object_id(obj_id: ObjectId) -> str:
+    return str(obj_id)
+
+class PyObjectId(str):
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, v, info=None):
+        if isinstance(v, ObjectId):
+            return str(v)
+        elif isinstance(v, str):
+            return v
+        raise ValueError("Invalid ObjectId")
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler) -> Any:
+        return handler(str)
 
 class TestCaseBase(BaseModel):
     input_data: str = Field(..., description="Datos de entrada para el caso de prueba")
@@ -11,12 +32,15 @@ class TestCaseCreate(TestCaseBase):
     pass
 
 class TestCaseResponse(TestCaseBase):
-    id: int
-    problem_id: int
+    id: str = Field(alias="_id")
+    problem_id: str
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
+
+    model_config = {
+        "from_attributes": True,
+        "populate_by_name": True,
+        "json_encoders": {ObjectId: str}
+    }
 
 class ProblemBase(BaseModel):
     title: str = Field(..., description="Título del problema")
@@ -36,21 +60,27 @@ class ProblemUpdate(BaseModel):
     memory_limit: Optional[int] = None
 
 class ProblemResponse(ProblemBase):
-    id: int
+    id: str = Field(alias="_id")
     created_at: datetime
     updated_at: Optional[datetime] = None
     test_cases: List[TestCaseResponse] = []
-    
-    class Config:
-        from_attributes = True
+
+    model_config = {
+        "from_attributes": True,
+        "populate_by_name": True,
+        "json_encoders": {ObjectId: str}
+    }
 
 class ProblemList(BaseModel):
-    id: int
+    id: str = Field(alias="_id")
     title: str
     difficulty: str
     time_limit: int
     memory_limit: int
     created_at: datetime
-    
-    class Config:
-        from_attributes = True 
+
+    model_config = {
+        "from_attributes": True,
+        "populate_by_name": True,
+        "json_encoders": {ObjectId: str}
+    } 

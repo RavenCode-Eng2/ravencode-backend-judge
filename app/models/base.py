@@ -2,6 +2,26 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 from enum import Enum
+from bson import ObjectId
+
+class PyObjectId(str):
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, v, info=None):
+        if isinstance(v, ObjectId):
+            return str(v)
+        elif isinstance(v, str):
+            if not ObjectId.is_valid(v):
+                raise ValueError("Invalid ObjectId")
+            return v
+        raise ValueError("Invalid ObjectId")
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        return handler(str)
 
 class Difficulty(str, Enum):
     EASY = "easy"
@@ -25,55 +45,84 @@ class TestCaseResultStatus(str, Enum):
     TIMEOUT = "timeout"
 
 class User(BaseModel):
-    id: int
+    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
     username: str
     email: str
     hashed_password: str
     is_active: bool = True
     is_admin: bool = False
-    created_at: datetime
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = {
+        "populate_by_name": True,
+        "arbitrary_types_allowed": True,
+        "json_encoders": {ObjectId: str}
+    }
 
 class Problem(BaseModel):
-    id: int
+    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
     title: str
     description: str
     difficulty: Difficulty
     time_limit: int = 1000  # milisegundos
     memory_limit: int = 256  # MB
-    created_at: datetime
-    test_cases: List['TestCase'] = []
+    created_at: datetime = Field(default_factory=datetime.now)
+    test_cases: Optional[List['TestCase']] = []
+
+    model_config = {
+        "populate_by_name": True,
+        "arbitrary_types_allowed": True,
+        "json_encoders": {ObjectId: str}
+    }
 
 class TestCase(BaseModel):
-    id: int
-    problem_id: int
+    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    problem_id: PyObjectId
     input_data: str
     expected_output: str
     is_sample: bool = False
-    created_at: datetime
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = {
+        "populate_by_name": True,
+        "arbitrary_types_allowed": True,
+        "json_encoders": {ObjectId: str}
+    }
 
 class Submission(BaseModel):
-    id: int
-    user_id: int
-    problem_id: int
+    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    user_id: PyObjectId
+    problem_id: PyObjectId
     code: str
     language: str
     status: SubmissionStatus = SubmissionStatus.PENDING
     execution_time: Optional[float] = None
-    memory_used: Optional[float] = None
-    score: float = 0.0
-    created_at: datetime
-    test_case_results: List['TestCaseResult'] = []
+    memory_used: Optional[int] = None
+    score: Optional[float] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = {
+        "populate_by_name": True,
+        "arbitrary_types_allowed": True,
+        "json_encoders": {ObjectId: str}
+    }
 
 class TestCaseResult(BaseModel):
-    id: int
-    submission_id: int
-    test_case_id: int
+    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    submission_id: PyObjectId
+    test_case_id: PyObjectId
     status: TestCaseResultStatus
     execution_time: Optional[float] = None
-    memory_used: Optional[float] = None
+    memory_used: Optional[int] = None
     output: Optional[str] = None
-    error_message: Optional[str] = None
-    created_at: datetime
+    error: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = {
+        "populate_by_name": True,
+        "arbitrary_types_allowed": True,
+        "json_encoders": {ObjectId: str}
+    }
 
 # Actualizar referencias circulares
 Problem.model_rebuild()
