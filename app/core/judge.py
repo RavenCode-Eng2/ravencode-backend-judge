@@ -25,8 +25,8 @@ class CodeJudge:
         self.supported_languages = {
             "python": {
                 "extension": ".py",
-                "command": "python",
-                "docker_image": "python:3.11-slim"
+                "command": "python" if os.name == "nt" else "python3",  # Use python on Windows, python3 on Unix
+                "docker_image": "python:3.10-slim"
             },
             "javascript": {
                 "extension": ".js",
@@ -50,9 +50,12 @@ class CodeJudge:
         Evaluar código contra todos los casos de prueba de un problema
         """
         try:
+            print(f"\nIniciando evaluación para problema {problem_id}")
+            
             # Obtener el problema y sus casos de prueba
             problem = await get_problem_by_id(problem_id)
             if not problem:
+                print("❌ Problema no encontrado")
                 return {
                     "status": "error",
                     "message": "Problema no encontrado"
@@ -60,17 +63,23 @@ class CodeJudge:
 
             test_cases = await get_test_cases_by_problem_id(problem_id)
             if not test_cases:
+                print("❌ No hay casos de prueba para este problema")
                 return {
                     "status": "error",
                     "message": "No hay casos de prueba para este problema"
                 }
             
+            print(f"✅ Encontrados {len(test_cases)} casos de prueba")
+            
             # Verificar que el lenguaje es soportado
             if language not in self.supported_languages:
+                print(f"❌ Lenguaje {language} no soportado")
                 return {
                     "status": "error",
                     "message": f"Lenguaje {language} no soportado"
                 }
+            
+            print(f"✅ Lenguaje {language} soportado")
             
             total_test_cases = len(test_cases)
             passed_test_cases = 0
@@ -79,7 +88,9 @@ class CodeJudge:
             test_case_results = []
             
             # Evaluar cada caso de prueba
-            for test_case in test_cases:
+            print("\nEjecutando casos de prueba...")
+            for i, test_case in enumerate(test_cases, 1):
+                print(f"\nCaso de prueba {i}/{total_test_cases}")
                 result = await self._run_test_case(
                     code=code,
                     language=language,
@@ -91,8 +102,11 @@ class CodeJudge:
                 
                 test_case_results.append(result)
                 
-                if result["status"] == "passed":
+                if result["status"] == "accepted":  # Verificar estado "accepted"
                     passed_test_cases += 1
+                    print(f"✅ Caso {i} pasado")
+                else:
+                    print(f"❌ Caso {i} fallido")
                 
                 if result.get("execution_time"):
                     total_execution_time += result["execution_time"]
@@ -105,10 +119,15 @@ class CodeJudge:
             
             if passed_test_cases == total_test_cases:
                 final_status = "accepted"
-            elif passed_test_cases > 0:
-                final_status = "partial"
+                print("\n✅ Todos los casos pasaron!")
             else:
                 final_status = "wrong_answer"
+                if passed_test_cases > 0:
+                    print(f"\n⚠️ Pasaron {passed_test_cases} de {total_test_cases} casos")
+                else:
+                    print("\n❌ Ningún caso pasó")
+            
+            print(f"Score final: {score}%")
             
             return {
                 "status": final_status,
@@ -120,7 +139,7 @@ class CodeJudge:
                 "test_case_results": test_case_results
             }
         except Exception as e:
-            print(f"Error en evaluate: {str(e)}")
+            print(f"❌ Error en evaluate: {str(e)}")
             return {
                 "status": "error",
                 "message": f"Error al evaluar la submisión: {str(e)}",
@@ -139,25 +158,60 @@ class CodeJudge:
         """
         Ejecutar un caso de prueba específico
         """
+        code_file = None
+        input_file = None
+        
         try:
-            # Crear archivo temporal con el código
-            with tempfile.NamedTemporaryFile(
-                mode='w',
-                suffix=self.supported_languages[language]["extension"],
-                delete=False
-            ) as f:
-                f.write(code)
-                code_file = f.name
+            print("\n=== EJECUTANDO CASO DE PRUEBA ===")
+            print("Código a ejecutar:")
+            print("-------------------")
+            print(code)
+            print("-------------------")
+            print("Input data:")
+            print("-------------------")
+            print(input_data)
+            print("-------------------")
+            print("Output esperado:")
+            print("-------------------")
+            print(expected_output)
+            print("-------------------")
             
-            # Crear archivo temporal con la entrada
-            with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-                f.write(input_data)
-                input_file = f.name
+            # Crear archivo temporal con el código
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode='w',
+                    suffix=self.supported_languages[language]["extension"],
+                    delete=False,
+                    encoding='utf-8'
+                ) as f:
+                    f.write(code)
+                    code_file = f.name
+                    print(f"Código guardado en archivo temporal: {code_file}")
+                
+                # Asegurar permisos de lectura
+                os.chmod(code_file, 0o644)
+                
+                # Crear archivo temporal con la entrada
+                with tempfile.NamedTemporaryFile(
+                    mode='w',
+                    delete=False,
+                    encoding='utf-8'
+                ) as f:
+                    f.write(input_data)
+                    input_file = f.name
+                    print(f"Input guardado en archivo temporal: {input_file}")
+                
+                # Asegurar permisos de lectura
+                os.chmod(input_file, 0o644)
+            except Exception as e:
+                print(f"Error al crear archivos temporales: {str(e)}")
+                raise
             
             # Ejecutar el código
             start_time = time.time()
             
             if settings.DEBUG:
+                print("\nEjecutando en modo DEBUG (local)")
                 # Modo desarrollo: ejecutar directamente
                 result = await self._execute_locally(
                     code_file=code_file,
@@ -166,6 +220,7 @@ class CodeJudge:
                     time_limit=time_limit
                 )
             else:
+                print("\nEjecutando en Docker")
                 # Modo producción: ejecutar en Docker
                 result = await self._execute_in_docker(
                     code_file=code_file,
@@ -175,45 +230,68 @@ class CodeJudge:
                     memory_limit=memory_limit
                 )
             
-            execution_time = time.time() - start_time
+            execution_time = int((time.time() - start_time) * 1000)  # Convertir a milisegundos
             
-            # Limpiar archivos temporales
-            os.unlink(code_file)
-            os.unlink(input_file)
-            
-            # Comparar salida con la esperada
-            actual_output = result.get("output", "").strip()
-            expected_output = expected_output.strip()
+            print("\n=== RESULTADO DE EJECUCIÓN ===")
+            print(f"Status: {result['status']}")
+            print("Output obtenido:")
+            print("-------------------")
+            print(result.get('output', ''))
+            print("-------------------")
             
             if result["status"] == "success":
+                actual_output = result["output"].strip()
+                expected_output = expected_output.strip()
+                
                 if actual_output == expected_output:
+                    print("✅ Output coincide con el esperado")
                     return {
-                        "status": "passed",
+                        "status": "accepted",  # Cambiado de "passed" a "accepted"
                         "execution_time": execution_time,
                         "memory_used": result.get("memory_used"),
                         "output": actual_output
                     }
                 else:
+                    print("❌ Output NO coincide con el esperado")
                     return {
-                        "status": "failed",
+                        "status": "wrong_answer",  # Cambiado de "failed" a "wrong_answer"
                         "execution_time": execution_time,
                         "memory_used": result.get("memory_used"),
                         "output": actual_output,
                         "expected_output": expected_output
                     }
             else:
+                error_status = result["status"]
+                if error_status == "timeout":
+                    error_status = "time_limit_exceeded"
+                elif error_status not in ["runtime_error", "compilation_error"]:
+                    error_status = "error"
+                    
+                print(f"❌ Error en ejecución: {result.get('error_message', 'Unknown error')}")
                 return {
-                    "status": result["status"],
+                    "status": error_status,
                     "execution_time": execution_time,
                     "memory_used": result.get("memory_used"),
                     "error_message": result.get("error_message")
                 }
                 
         except Exception as e:
+            print(f"\n❌ Error ejecutando caso de prueba: {str(e)}")
             return {
                 "status": "error",
                 "error_message": str(e)
             }
+        finally:
+            # Limpiar archivos temporales
+            try:
+                if code_file and os.path.exists(code_file):
+                    os.chmod(code_file, 0o666)  # Dar permisos de lectura/escritura
+                    os.unlink(code_file)
+                if input_file and os.path.exists(input_file):
+                    os.chmod(input_file, 0o666)  # Dar permisos de lectura/escritura
+                    os.unlink(input_file)
+            except Exception as e:
+                print(f"Error al limpiar archivos temporales en _run_test_case: {str(e)}")
     
     async def _execute_locally(
         self,
@@ -227,6 +305,7 @@ class CodeJudge:
         """
         try:
             lang_config = self.supported_languages[language]
+            cmd = None
             
             # Preparar comando
             if language == "python":
@@ -240,38 +319,77 @@ class CodeJudge:
                 subprocess.run(compile_cmd, check=True, capture_output=True)
                 cmd = ["java", "-cp", os.path.dirname(code_file), class_name]
             
-            # Ejecutar con timeout
-            with open(input_file, 'r') as input_f:
-                process = await asyncio.wait_for(
-                    asyncio.create_subprocess_exec(
-                        *cmd,
-                        stdin=input_f,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    ),
-                    timeout=time_limit / 1000.0  # Convertir a segundos
+            if cmd is None:
+                return {
+                    "status": "error",
+                    "error_message": f"Lenguaje no soportado: {language}"
+                }
+            
+            print(f"Ejecutando comando: {' '.join(cmd)}")
+            
+            try:
+                # Asegurarse de que los archivos existen y tienen los permisos correctos
+                if not os.path.exists(code_file):
+                    raise FileNotFoundError(f"Archivo de código no encontrado: {code_file}")
+                if not os.path.exists(input_file):
+                    raise FileNotFoundError(f"Archivo de entrada no encontrado: {input_file}")
+                
+                # Leer el contenido del archivo de entrada como texto
+                with open(input_file, 'r', encoding='utf-8') as input_f:
+                    input_data = input_f.read()
+                
+                # Ejecutar el proceso con timeout
+                process = subprocess.run(
+                    cmd,
+                    input=input_data,
+                    capture_output=True,
+                    timeout=time_limit / 1000.0,  # Convertir a segundos
+                    text=True,  # Automáticamente decodifica la salida como texto
+                    encoding='utf-8'  # Especificar codificación
                 )
                 
-                stdout, stderr = await process.communicate()
-                
                 if process.returncode == 0:
+                    output = process.stdout.strip()
+                    print(f"Salida del programa: '{output}'")
                     return {
                         "status": "success",
-                        "output": stdout.decode('utf-8'),
+                        "output": output,
                         "memory_used": 0  # No medimos memoria en modo local
                     }
                 else:
+                    error_msg = process.stderr.strip()
+                    print(f"Error del programa: {error_msg}")
                     return {
                         "status": "runtime_error",
-                        "error_message": stderr.decode('utf-8')
+                        "error_message": error_msg
                     }
                     
-        except asyncio.TimeoutError:
-            return {
-                "status": "timeout",
-                "error_message": "Tiempo de ejecución excedido"
-            }
+            except subprocess.TimeoutExpired:
+                print("Tiempo de ejecución excedido")
+                return {
+                    "status": "timeout",
+                    "error_message": "Tiempo de ejecución excedido"
+                }
+            except Exception as e:
+                print(f"Error al ejecutar el proceso: {str(e)}")
+                return {
+                    "status": "error",
+                    "error_message": f"Error al ejecutar el código: {str(e)}"
+                }
+            finally:
+                # Limpiar archivos temporales
+                try:
+                    if os.path.exists(code_file):
+                        os.chmod(code_file, 0o666)  # Dar permisos de lectura/escritura
+                        os.unlink(code_file)
+                    if os.path.exists(input_file):
+                        os.chmod(input_file, 0o666)  # Dar permisos de lectura/escritura
+                        os.unlink(input_file)
+                except Exception as e:
+                    print(f"Error al limpiar archivos temporales: {str(e)}")
+                    
         except Exception as e:
+            print(f"Error general: {str(e)}")
             return {
                 "status": "error",
                 "error_message": str(e)

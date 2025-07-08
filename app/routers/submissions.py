@@ -25,13 +25,18 @@ async def create_submission(
     """
     Crear una nueva submisión de código y evaluarla automáticamente
     """
+    print("Recibida nueva petición de submission")
+    
     # Verificar que el problema existe
     problem = await get_problem_by_id(submission.problem_id)
     if not problem:
+        print(f"Problema no encontrado: {submission.problem_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Problema no encontrado"
         )
+    
+    print(f"Problema encontrado: {problem.title}")
     
     db = get_db()
     
@@ -45,15 +50,25 @@ async def create_submission(
         "created_at": datetime.now()
     }
     
-    result = await db.submissions.insert_one(submission_data)
-    submission_id = str(result.inserted_id)
-    
-    # Ejecutar la evaluación en segundo plano
-    asyncio.create_task(evaluate_submission(submission_id))
-    
-    # Obtener la submisión creada
-    created_submission = await get_submission_by_id(submission_id)
-    return created_submission
+    try:
+        result = await db.submissions.insert_one(submission_data)
+        submission_id = str(result.inserted_id)
+        print(f"Submission creada con ID: {submission_id}")
+        
+        # Ejecutar la evaluación en segundo plano
+        print("Iniciando evaluación en segundo plano...")
+        asyncio.create_task(evaluate_submission(submission_id))
+        
+        # Obtener la submisión creada
+        created_submission = await get_submission_by_id(submission_id)
+        print("Retornando submission al frontend")
+        return created_submission
+    except Exception as e:
+        print(f"Error al crear submission: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al crear submission: {str(e)}"
+        )
 
 @router.get("/", response_model=List[SubmissionList])
 async def get_submissions(
@@ -137,6 +152,14 @@ async def evaluate_submission(submission_id: str):
         
         db = get_db()
         
+        # Log para depuración
+        print("\n=== EVALUANDO SUBMISSION ===")
+        print(f"ID: {submission_id}")
+        print("Código a evaluar:")
+        print("-------------------")
+        print(submission.code)
+        print("-------------------")
+        
         # Actualizar estado a "running"
         await db.submissions.update_one(
             {"_id": ObjectId(submission_id)},
@@ -153,6 +176,21 @@ async def evaluate_submission(submission_id: str):
             problem_id=str(submission.problem_id)
         )
         
+        # Log del resultado
+        print("\n=== RESULTADO DE EVALUACIÓN ===")
+        print(f"Status: {result['status']}")
+        print(f"Score: {result.get('score', 0.0)}")
+        if result.get('test_case_results'):
+            print("\nResultados por caso de prueba:")
+            for i, test_result in enumerate(result['test_case_results'], 1):
+                print(f"\nCaso {i}:")
+                print(f"Status: {test_result['status']}")
+                if test_result.get('output'):
+                    print(f"Output:\n{test_result['output']}")
+                if test_result.get('expected_output'):
+                    print(f"Expected:\n{test_result['expected_output']}")
+        print("-------------------")
+        
         # Actualizar la submisión con los resultados
         update_data = {
             "status": result["status"],
@@ -167,10 +205,14 @@ async def evaluate_submission(submission_id: str):
         )
         
     except Exception as e:
-        # En caso de error, marcar como error
+        # En caso de error, marcar como error y mostrar detalles
+        print(f"\n=== ERROR EN EVALUACIÓN ===")
+        print(f"Error evaluando submisión {submission_id}:")
+        print(str(e))
+        print("-------------------")
+        
         db = get_db()
         await db.submissions.update_one(
             {"_id": ObjectId(submission_id)},
             {"$set": {"status": "error"}}
-        )
-        print(f"Error evaluando submisión {submission_id}: {str(e)}") 
+        ) 
