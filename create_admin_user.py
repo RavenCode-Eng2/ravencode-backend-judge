@@ -28,28 +28,28 @@ async def create_admin_user():
         # Verificar si ya existe un usuario admin
         existing_admin = await db.users.find_one({"username": "admin"})
         if existing_admin:
-            print("❌ Ya existe un usuario admin con username 'admin'")
+            print("Ya existe un usuario admin con username 'admin'")
             return
         
         # Insertar el usuario admin
         result = await db.users.insert_one(admin_data)
         
         if result.inserted_id:
-            print("✅ Usuario admin creado exitosamente!")
-            print(f"   Username: admin")
-            print(f"   Email: admin@ravencode.com")
-            print(f"   Password: admin123")
-            print(f"   ID: {result.inserted_id}")
-            print("\n🔐 Ahora puedes hacer login con estas credenciales")
+                    print("Usuario admin creado exitosamente!")
+        print(f"   Username: admin")
+        print(f"   Email: admin@ravencode.com")
+        print(f"   Password: admin123")
+        print(f"   ID: {result.inserted_id}")
+        print("\nAhora puedes hacer login con estas credenciales")
         else:
-            print("❌ Error al crear el usuario admin")
+            print("Error al crear el usuario admin")
             
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
     finally:
         # Cerrar conexión
         await close_mongo_connection()
 
 if __name__ == "__main__":
-    print("🚀 Creando usuario administrador...")
+    print("Creando usuario administrador...")
     asyncio.run(create_admin_user()) 
