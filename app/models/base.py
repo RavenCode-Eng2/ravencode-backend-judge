@@ -91,7 +91,7 @@ class TestCase(BaseModel):
 
 class Submission(BaseModel):
     id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
-    user_id: PyObjectId
+    user_email: str  # Cambiado de user_id: PyObjectId
     problem_id: PyObjectId
     code: str
     language: str

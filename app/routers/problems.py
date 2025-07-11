@@ -15,9 +15,7 @@ from app.schemas.problem import (
     TestCaseResponse
 )
 
-router = APIRouter(
-    tags=["problems"]
-)
+router = APIRouter()
 
 @router.get("/", response_model=List[ProblemList])
 async def get_problems(

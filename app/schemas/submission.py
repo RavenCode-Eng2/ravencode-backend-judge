@@ -3,6 +3,7 @@ from typing import Optional, List
 from datetime import datetime
 from bson import ObjectId
 from app.models.base import PyObjectId, SubmissionStatus
+from app.core.database import get_db, get_problem_by_id, get_submissions_by_user_email, get_submission_by_id
 
 def serialize_object_id(obj_id: ObjectId) -> str:
     return str(obj_id)
@@ -11,6 +12,7 @@ class SubmissionBase(BaseModel):
     problem_id: PyObjectId = Field(..., description="ID del problema")
     code: str = Field(..., description="Código fuente del estudiante")
     language: str = Field(..., description="Lenguaje de programación")
+    email: Optional[str] = Field(None, description="Email del usuario que hace la submission")
 
     model_config = {
         "populate_by_name": True,
@@ -49,7 +51,7 @@ class TestCaseResultSchema(BaseModel):
 
 class SubmissionResponse(SubmissionBase):
     id: PyObjectId = Field(alias="_id")
-    user_id: PyObjectId
+    user_email: str  # Cambiado de user_id
     status: SubmissionStatus
     execution_time: Optional[float] = None
     memory_used: Optional[float] = None
@@ -66,6 +68,7 @@ class SubmissionResponse(SubmissionBase):
 class SubmissionList(BaseModel):
     id: PyObjectId = Field(alias="_id")
     problem_id: PyObjectId
+    code: str = Field(..., description="Código fuente del estudiante")
     language: str
     status: SubmissionStatus
     score: Optional[float] = None

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # Configuración de seguridad
-    SECRET_KEY: str = "tu_clave_secreta_aqui_cambiala_en_produccion"
+    SECRET_KEY: str = "your-secret-key-here"  # Cambiado para coincidir con el backend de usuarios
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     

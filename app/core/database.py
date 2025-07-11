@@ -61,10 +61,10 @@ async def get_test_cases_by_problem_id(problem_id: str) -> List[TestCase]:
     test_cases_data = [convert_object_ids(tc) for tc in test_cases_data]
     return [TestCase(**tc) for tc in test_cases_data]
 
-async def get_submissions_by_user_id(user_id: str) -> List[Submission]:
-    """Obtener submisiones por ID del usuario"""
+async def get_submissions_by_user_email(user_email: str) -> List[Submission]:
+    """Obtener submisiones por email del usuario"""
     db = get_database()
-    submissions_cursor = db.submissions.find({"user_id": ObjectId(user_id)})
+    submissions_cursor = db.submissions.find({"user_email": user_email})
     submissions_data = await submissions_cursor.to_list(length=None)
     submissions_data = [convert_object_ids(s) for s in submissions_data]
     return [Submission(**s) for s in submissions_data]
