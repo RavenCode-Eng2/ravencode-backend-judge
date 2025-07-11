@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime
 from bson import ObjectId
 
-from app.core.database import get_db, get_problem_by_id, get_submissions_by_user_id, get_submission_by_id
+from app.core.database import get_db, get_problem_by_id, get_submissions_by_user_email, get_submission_by_id
 from app.core.judge import CodeJudge
 from app.models.base import User, Submission
 from app.schemas.submission import (
@@ -40,9 +40,12 @@ async def create_submission(
     
     db = get_db()
     
-    # Crear la submisión
+    # Crear la submisión usando el email del request body o fallback
+    user_email = submission.email if submission.email else "anonymous@example.com"
+    print(f"Email del usuario: {user_email}")
+    
     submission_data = {
-        "user_id": ObjectId(current_user.id),
+        "user_email": user_email,  # Usar el email del request body o fallback
         "problem_id": ObjectId(submission.problem_id),
         "code": submission.code,
         "language": submission.language,
@@ -72,19 +75,21 @@ async def create_submission(
 
 @router.get("/", response_model=List[SubmissionList])
 async def get_submissions(
+    email: str,  # Recibir email como parámetro de query
     skip: int = 0,
     limit: int = 100,
     current_user: User = Depends(get_current_user_optional)
 ):
     """
-    Obtener lista de submisiones del usuario actual
+    Obtener lista de submisiones del usuario especificado por email
     """
-    submissions = await get_submissions_by_user_id(str(current_user.id))
+    submissions = await get_submissions_by_user_email(email)
     return submissions[skip:skip + limit]
 
 @router.get("/{submission_id}", response_model=SubmissionResponse)
 async def get_submission(
     submission_id: str,
+    email: str = None,  # Hacer opcional
     current_user: User = Depends(get_current_user_optional)
 ):
     """
@@ -92,7 +97,14 @@ async def get_submission(
     """
     submission = await get_submission_by_id(submission_id)
     
-    if not submission or str(submission.user_id) != str(current_user.id):
+    if not submission:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Submisión no encontrada"
+        )
+    
+    # Si se proporciona email, validar que coincida
+    if email and submission.user_email != email:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Submisión no encontrada"
@@ -104,6 +116,7 @@ async def get_submission(
 async def update_submission(
     submission_id: str,
     submission_update: SubmissionUpdate,
+    email: str,  # Recibir email como parámetro de query
     current_user: User = Depends(get_current_user_optional)
 ):
     """
@@ -112,7 +125,7 @@ async def update_submission(
     db = get_db()
     submission = await get_submission_by_id(submission_id)
     
-    if not submission or str(submission.user_id) != str(current_user.id):
+    if not submission or submission.user_email != email:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Submisión no encontrada"
@@ -140,6 +153,46 @@ async def update_submission(
     # Obtener la submisión actualizada
     updated_submission = await get_submission_by_id(submission_id)
     return updated_submission
+
+@router.delete("/{submission_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_submission(
+    submission_id: str,
+    email: str,  # Recibir email como parámetro de query
+    current_user: User = Depends(get_current_user_optional)
+):
+    """
+    Eliminar una submisión específica por ID
+    """
+    db = get_db()
+    submission = await get_submission_by_id(submission_id)
+    
+    if not submission or submission.user_email != email:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Submisión no encontrada"
+        )
+    
+    # Eliminar la submisión
+    result = await db.submissions.delete_one({"_id": ObjectId(submission_id)})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Submisión no encontrada"
+        )
+    
+    print(f"Submisión {submission_id} eliminada para el usuario {email}")
+    return None
+
+@router.delete("/by-user", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_submissions_by_user(email: str, current_user: User = Depends(get_current_user_optional)):
+    """
+    Eliminar todas las submissions de un usuario por email
+    """
+    db = get_db()
+    result = await db.submissions.delete_many({"user_email": email})
+    print(f"Eliminadas {result.deleted_count} submissions para el usuario {email}")
+    return None
 
 async def evaluate_submission(submission_id: str):
     """

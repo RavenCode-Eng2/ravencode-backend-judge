@@ -81,19 +81,18 @@ async def get_default_user() -> User:
     )
 
 async def get_current_user_optional(token: str = Depends(oauth2_scheme)) -> User:
-    """Obtener usuario actual o usuario por defecto si no hay token"""
+    """Obtener usuario actual (simplificado ya que el email viene en el request body)."""
+    from datetime import datetime
+    from app.models.base import User
+    
+    # Ya no necesitamos extraer el email del JWT, solo validar que hay un token
     if token is None:
-        return await get_default_user()
+        print("DEBUG: No se proporcionó token JWT")
+        return User(id=None, username="anonymous", email="anonymous@example.com", hashed_password="", is_active=False, is_admin=False, created_at=datetime.now())
     
-    username = verify_token(token)
-    if username is None:
-        return await get_default_user()
-    
-    user = await get_user_by_username(username)
-    if user is None:
-        return await get_default_user()
-    
-    return user
+    # Si hay token, consideramos al usuario como autenticado
+    print("DEBUG: Token JWT proporcionado, usuario autenticado")
+    return User(id=None, username="authenticated", email="authenticated@example.com", hashed_password="", is_active=True, is_admin=False, created_at=datetime.now())
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     """Obtener usuario actual desde el token (requiere autenticación)"""
