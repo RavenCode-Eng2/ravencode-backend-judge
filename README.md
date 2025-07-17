@@ -44,6 +44,80 @@ la evaluación automática de submisiones de código, la ejecución segura de pr
    http://localhost:8000/docs
 
 
+## Observabilidad📊📈
+
+### **Prerrequisitos**⚙️
+
+Antes de comenzar, asegúrate de tener las siguientes herramientas instaladas:
+
+Prometheus📡 - Para la recolección de métricas.
+
+Grafana💻 - Para la visualización de métricas.
+
+### **Configuración Prometheus** 🔧
+
+Tu archivo prometheus.yml de configuración debe verse asi:
+```bash
+global:
+scrape_interval: 15s  # Set the scrape interval to every 15 seconds.
+evaluation_interval: 15s  # Evaluate rules every 15 seconds.
+
+# Scrape configuration for Prometheus itself.
+scrape_configs:
+- job_name: "prometheus"
+   static_configs:
+   - targets: ["localhost:9090"]
+      labels:
+         app: "prometheus"
+
+# Scrape configuration for FastAPI service
+- job_name: "fastapi-service"
+   static_configs:
+   - targets: ["localhost:8000"]  # Replace with your FastAPI service URL and port
+      labels:
+         app: "fastapi"
+```
+
+#### **Iniciar Prometheus** 🚀
+1. Abre una terminal (cmd o PowerShell).
+2. Navega hasta la carpeta donde descomprimiste Prometheus.
+3. Ejecuta el siguiente comando para iniciar Prometheus:
+```bash
+   prometheus.exe --config.file=prometheus.yml
+```
+
+#### **Acceder a Prometheus** 🖥️
+
+1. Una vez iniciado, abre un navegador y accede a: 
+
+   http://localhost:9090 
+
+2. Puedes usar la pestaña Status > Targets para verificar que Prometheus esté recolectando las métricas de tu aplicación.
+
+
+### **Configuración Grafana** 📊
+
+1. Abre una terminal (cmd o PowerShell).
+
+2. Navega a la carpeta bin dentro de la carpeta de Grafana 
+
+   ```bash
+      cd C:\grafana\bin
+   ```
+
+3. Ejecuta el siguiente comando para iniciar Grafana:
+   ```bash
+      grafana-server.exe
+   ```
+   #### **Acceder a Grafana** 🖥️
+   1. Abre un navegador y accede a:
+   
+       http://localhost:4000 
+
+   2. El usuario y la contraseña por defecto son admin.
+
+Despues de tener los pasos anteirores, solo debes configurar Prometheus como fuente de datos en grafana y crea un Dashboard para visualizar tus consultas PromQL.
+
 ## 🔐 Funcionalidades del módulo
 
 ### **Evaluación de Código**
